@@ -1,15 +1,41 @@
-Node-DataTables - DataTables server-side script for Node.js
+# Node-DataTables 
+
+## DataTables server-side script for Node.js
 
 Requires:
 
-* (MySql) - https://github.com/felixge/node-mysql : npm install mysql@2.0.0-alpha5
-* (ExpressJS) - https://npmjs.org/package/express : npm install express
+* `MySql` - https://github.com/felixge/node-mysql
+```bash
+npm install mysql@2.0.0-alpha8
+```
 
-Setup:
-Run this script with nodejs, and initialize your table with the ajax source as the location to the server. It should act similar to that of the php example:
+* `Express.js` - https://npmjs.org/package/express
+```bash
+npm install express
+```
 
-    oTable = $('#example').dataTable({
-        "bServerSide": true,
-        "sAjaxSource": "http://URL.com:8888/server",
-      });
+## Setup:
+
+Set the MySQL information (make sure to set sTable to the table you are querying)
+```js
+var sTable = '';
+var connection = mysql.createConnection({
+  host     : '',
+  user     : '',
+  password : '', 
+  database : '',
+});
+```
+Run the script with Node.js, and initialize your DataTable with the ajax source as the location to the server.
+
+```js
+oTable = $('#example').dataTable({
+    "bServerSide": true,
+    "sAjaxSource": "http://URL:8888/server",
+  });
+```
+
+## Info:
+
+aColumns is set at launch with the function `getColumnNames`. 
 

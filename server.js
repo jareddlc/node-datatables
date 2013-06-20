@@ -1,16 +1,16 @@
 /* Node-DataTables
  * https://github.com/jareddlc/Node-DataTables
+ * this is a copy of the server side script located at: http://datatables.net/release-datatables/examples/data_sources/server_side.html
  * Fill in the MySQL information below
  */
 
 //------------------------- Setup
 //---MySQL
 var mysql = require('mysql');
-var DATABASE = '';
-var sTable = '';
 var sIndexColumn = '*';
+var sTable = '';
 var connection = mysql.createConnection({
-  host     : 'localhost',
+  host     : '',
   user     : '',
   password : '', 
   database : '',
@@ -26,21 +26,23 @@ function handleDisconnect(connection){
     {
       throw err;
     }
-    console.log('Re-connecting lost connection: ' +err.stack);
-    connection = mysql.createConnection({
-      host     : '',
-      user     : '',
-      password : '', 
-      database : '',
-    });
-    handleDisconnect(connection);
-    connection.connect();
+    connection.end();
+    console.log('\nRe-connecting lost connection: ' +err.stack);
+    console.log(connection.config);
+
+    setTimeout(function()
+    {
+      connection = mysql.createConnection(connection.config);
+      handleDisconnect(connection);
+      connection.connect();
+    }, 1000); // 1 sec
   });
 }
 
 handleDisconnect(connection);
 
-startup();
+//---Grabs columns names and populates aColumns
+getColumnNames();
 console.log('Server initilizing...');
 
 //---ExpressJS
@@ -65,93 +67,23 @@ app.configure(function() {
   app.use(express.methodOverride());
   app.use(allowCrossDomain);
   app.use(app.router);
-  app.use(express.static(__dirname + '/public'));
 });
 
-var cache_tables = {};
-var cache_data = {};
-var cache_colNames = {};
-var cache_colCount = {};
-var cache_rowCount = {};
+//---Global vars
 var request = {};
 var aColumns = [];
 
 //------------------------- Endpoints
-app.get('/', function(req, res, next){
-  console.log('GET request to /');
-});
-
 app.get('/server', function(req, res, next){
   console.log('GET request to /server');
   request = req.query;
   server(res);
 })
 
-app.get('/getColumnNames', function(req, res, next){
-  console.log('GET request to /getColumnNames');
-  sendJSON(res, 200, cache_colNames);
-});
-
-app.get('/getColumnCount', function(req, res, next){
-  console.log('GET request to /getColumnCount');
-  console.log('column count = ' +cache_colCount);
-  sendJSON(res, 200, cache_colCount);
-});
-
-app.get('/getRowCount', function(req, res, next){
-  console.log('GET request to /getRowCount');
-  console.log('row count = ' +cache_rowCount);
-  sendJSON(res, 200, cache_rowCount);
-});
-
-app.get('/getTables', function(req, res, next){
-  console.log('GET request to /getTables');
-  getTables(req, res);
-  sendJSON(res, 200, cache_tables);
-});
-
-app.post('/postRow', function(req, res, next){
-  console.log('POST request to /postRow');
-  postRow(req, res);
-  console.log(req.body);
-});
-
-app.post('/postTable', function(req, res, next){
-  console.log('POST request to /selTable');
-  postTable(req, res);
-  console.log(req.body);
-});
-
-app.post('/postCol', function(req, res, next){
-  console.log('POST request to /postCol');
-  postColumn(req, res);
-  console.log(req.body);
-});
-
-app.post('/putRow', function(req, res, next){
-  console.log('POST request to /putRow');
-  putRow(req, res);
-  console.log(req.body);
-});
-
-app.post('/selTable', function(req, res, next){
-  console.log('POST request to /selTable');
-  selTable(req, res);
-  console.log(req.body);
-});
-
 app.listen(8888);
 console.log('Express server started on port 8888');
 
 //------------------------- Functions
-function startup()
-{
-    getColumnCount();
-    getRowCount();
-    getColumnNames();
-    getTables();
-}
-
 function server(res)
 {
   //Paging
@@ -282,35 +214,6 @@ function server(res)
   }); 
 }
 
-function getColumnCount()
-{
-  connection.query('SELECT * FROM '+sTable +' LIMIT 1',
-  function selectCb(err, results, fields){
-    if(err){
-      console.log(err);
-    }
-
-    var count=0;
-    for(var i in fields)
-    {
-      count++;
-    }
-    cache_colCount = count;
-  });
-}
-
-function getRowCount()
-{
-  connection.query('SELECT COUNT(*) FROM '+sTable,
-    function selectCb(err, results, fields){
-      if(err){
-        console.log(err);
-      }
-      var count = parseInt(results[0]['COUNT(*)']);
-      cache_rowCount = count;
-    });
-}
-
 function getColumnNames()
 {
   aColumns = [];
@@ -323,23 +226,6 @@ function getColumnNames()
       {
         aColumns.push(results[i]['Field']);
       }
-      cache_colNames = results;
-    });
-}
-
-function getTables(req, res)
-{
-  connection.query('SHOW TABLES',
-    function selectCb(err, results, fields){
-      if(err){
-        console.log(err);
-      }
-      var temp = [];
-      for(var i in results)
-      {  
-        temp[i] = results[i]['Tables_in_'+DATABASE];
-      }
-      cache_tables = temp;
     });
 }
 
@@ -349,183 +235,3 @@ function sendJSON(res, httpCode, body)
   res.send(httpCode,response);
 }
 
-function postTable(req, res)
-{
-  var Table = req.body['form-db-create-name'];
-  Table = cleanString(Table);
-  connection.query('CREATE TABLE '+Table+'(id int(10) UNSIGNED AUTO_INCREMENT PRIMARY KEY) ENGINE=InnoDB CHARACTER SET utf8 COLLATE utf8_bin',
-    function selectCb(err, results, fields){
-      if(err){
-        console.log(err);
-      }
-      getTables();
-    });
-}
-
-function postRow(req, res)
-{
-  var counter = 0;
-  var key_name = [];
-  var key_value = [];
-  var into = "";
-  var values = "";
-  var p_open = "(";
-  var p_close = ")";
-  var quote = "\"";
-  var comma = ",";
-
-  into += p_open;
-  values += p_open;
-
-  for (var key in req.body){
-    into += key;
-    into += comma;
-
-    values += quote;
-    values += req.body[key];
-    values += quote;
-    values += comma;
-
-    key_name[counter] = key;
-    key_value[counter] = req.body[key];
-    counter += 1;
-  }
-
-  into = into.substr(0, into.length-1);
-  values = values.substr(0, values.length-1);
-
-  into += p_close;
-  values += p_close;
-
-  connection.query('INSERT INTO ' +sTable+ ' ' +into+ ' VALUES ' +values,
-  function selectCb(err, results, fields){
-      if(err){
-        console.log(err);
-      }
-      sendJSON(res, 200, "success");
-
-      getColumnCount();
-      getRowCount();
-      getColumnNames();
-      getTables();
-    });
-}
-
-function postColumn(req, res)
-{
-  var into = "";
-  var quote = "\'";
-
-  for(var key in req.body){
-
-    if(key == "form-col-add-name")
-    {
-      into += cleanString(req.body[key]);
-      into += " ";
-    }
-
-    if(req.body[key] == "int")
-    {
-      into += "INT(10)";
-    }
-
-    if(req.body[key] == "varchar")
-    {
-      into += "VARCHAR(255)";
-    }
-
-    if(req.body[key] == "enum")
-    {
-      into += "ENUM";
-    }
-
-    if(key == "form-col-add-param")
-    {
-      into += "(";
-      for(var i in req.body[key])
-      {
-        into += quote;
-        into += req.body[key][i];
-        into += quote;
-        into += ","
-      }
-      into = into.substr(0, into.length-1);
-      into += ")";
-    }
-  }
-  console.log(into);
-  connection.query('ALTER TABLE '+sTable+' ADD ' +into,
-    function selectCb(err, results, fields){
-      if(err){
-        console.log(err);
-      }
-      sendJSON(res, 200, "success");
-
-      getColumnCount();
-      getRowCount();
-      getColumnNames();
-      getTables();
-  });
-}
-
-function putRow(req, res)
-{
-  var into = "";
-  var p_open = "(";
-  var p_close = ")";
-  var quote = "\"";
-  var comma = ",";
-  var id;
-
-  for (var key in req.body){
-    if(key ==  "id")
-    {
-      id = req.body[key];
-    }
-    else{
-      //into += quote;
-      into += key;
-      //into += quote;
-      into += "=";
-      into += quote;
-      into += req.body[key];
-      into += quote;
-      into += comma;
-    }
-  }
-
-  into = into.substr(0, into.length-1);
-
-  connection.query('UPDATE ' +sTable+ ' SET ' +into+ ' WHERE id=' +id,
-  function selectCb(err, results, fields){
-      if(err){
-        console.log(err);
-      }
-      sendJSON(res, 200, "success");
-
-      getColumnCount();
-      getRowCount();
-      getColumnNames();
-      getTables();
-    });
-}
-
-function selTable(req, res)
-{
-  sTable = req.body['db-sel'];
-  getColumnNames();
-  getColumnCount();
-  getRowCount();
-  getTables();
-  sendJSON(res, 200, "success");
-}
-
-function cleanString(str)
-{
-  var output = "";
-  output += str.replace(/\s+/g, '_');
-  output = output.replace(/\'+/g, '');
-  output = output.replace(/\"+/g, '');
-  output = output.replace(/\\+/g, '');
-  return output;
-}
